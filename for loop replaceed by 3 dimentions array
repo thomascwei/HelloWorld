@@ -1,0 +1,8 @@
+ARRAY <- array(0, c(18, 12000, length(row.seq)))
+
+for(i in 1:length(row.seq)){
+    end=row.seq[i]
+    start=end-17
+    RAW5=as.matrix(RAW4[start:end,-1])
+    ARRAY[,,i]=RAW5
+}
