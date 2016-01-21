@@ -1,0 +1,9 @@
+library(RJDBC)
+
+drv <- JDBC("org.postgresql.Driver",
+            "/etc/jdbc/postgresql-9.4-1204.jdbc4.jar",
+            identifier.quote="`")
+conn <- dbConnect(drv, "jdbc:postgresql://192.168.206.150:5432/BD2", "bigdata", "bigdata")
+
+Query='SELECT  * FROM ydk2_tag limit 10'
+RAW <- dbGetQuery(conn,Query)
