@@ -1,0 +1,1 @@
+sqoop import -connect "jdbc:sqlserver://192.168.204.44:1433;database=BD2" -username bd_user -password bd@user -table YD_tag_list -target-dir /user/user31/sqoop -split-by scada_tag_name -m 1
