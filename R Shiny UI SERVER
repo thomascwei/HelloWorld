@@ -1,0 +1,113 @@
+#ui.R
+library(shiny)
+shinyUI(fluidPage(
+  titlePanel("Dates and date ranges"),
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("variable", "監測點",   c("T45-MB1" = "FIC-508A-3/PID1/PV.CV",
+                                            "T45-MB2" = "FIC-508B-3/PID1/PV.CV",
+                                            "T46-MB1" = "FIC-505A-3/PID1/PV.CV",
+                                            "T46-MB2" = "FIC-505B-3/PID1/PV.CV",
+                                            "T47-MB1" = "MAI-514A-3/PID1/PV.CV",
+                                            "T47-MB2" = "MAI-514B-3/PID1/PV.CV"
+                                         ))
+      ,
+      dateRangeInput('dateRange',
+                   #label = 'Date range input: yyyy-mm-dd',
+                   label = '選擇日期區間',
+                   start = Sys.Date() - 2, end = Sys.Date() + 2
+      )
+    )
+    ,
+    # Show the caption and plot of the requested variable against
+    # mpg
+    mainPanel(
+      h3(textOutput("caption")),
+      
+      plotOutput("mpgPlot"),
+      tableOutput("view"),
+      textOutput("dateRangeText")
+    )
+  )
+  #,
+  #column(6, wellPanel(
+  #    dateRangeInput('dateRange',
+  #                 label = 'Date range input: yyyy-mm-dd',
+  #                 start = Sys.Date() - 2, end = Sys.Date() + 2
+  #  )
+  #)),
+  
+))
+
+#server.r
+library(shiny)
+library(datasets)
+library(reshape2)
+
+
+#Query=paste("SELECT DCS#DATETIME DDATE,DCS#VALUE 
+#            FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
+#            WHERE DCS#TAGCD =",input$variable,
+#            "and	DCS#DATETIME >=",as.POSIXlt(input$dateRange[1]),
+#            "and	DCS#DATETIME <",as.POSIXlt(input$dateRange[2])
+#            ,sep = " ")
+#RAW <- dbGetQuery(conn,Query)
+
+
+shinyServer(function(input, output, session) {
+
+  formulaText <- reactive({
+    paste(input$variable)
+  })
+  output$caption <- renderText({
+    formulaText()
+  })
+
+  Query <-  reactive({
+    paste("SELECT DCS#DATETIME,DCS#VALUE 
+                FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
+                WHERE DCS#TAGCD = '",input$variable,"'",
+              " and	DCS#DATETIME >='",as.character(input$dateRange[1]),"'",
+              " and	DCS#DATETIME <'",as.character(input$dateRange[2]),"'"
+          #" and	DCS#DATETIME >='2015-04-01' and	DCS#DATETIME <'2015-04-04'"
+          ,sep = "")
+  })   
+    
+  RAW <- reactive({
+    library(RJDBC)
+    drv <- JDBC("com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                "/etc/jdbc/sqljdbc41.jar",
+                identifier.quote="`")
+    conn <- dbConnect(drv, "jdbc:sqlserver://192.168.204.44:1433", "sa", "!qaz2wsx")
+    
+    Query <-#  reactive({
+                paste("SELECT DCS#DATETIME,DCS#VALUE 
+                FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
+                WHERE DCS#TAGCD = '",input$variable,"'",
+                " and	DCS#DATETIME >='",as.character(input$dateRange[1]),"'",
+                " and	DCS#DATETIME <'",as.character(input$dateRange[2]),"'"
+            #" and	DCS#DATETIME >='2015-04-01' and	DCS#DATETIME <'2015-04-04'"
+            ,sep = "")
+    #}) 
+    
+
+    RAW0 <- dbGetQuery(conn,Query)
+    #RAW0 <- reactive({
+    #        dbGetQuery(conn,Query())
+    #})
+    RAW0
+  })
+  
+  output$mpgPlot <- renderPlot({
+    plot(RAW()$'DCS#VALUE',  col="blue")
+  })
+  
+  output$dateRangeText  <- renderText({
+    #as.character(input$dateRange[1])
+    isolate(Query())
+  })
+  
+  output$view <- renderTable({
+    print(RAW(), row.names = FALSE)
+  })
+})
