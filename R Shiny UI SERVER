@@ -1,75 +1,83 @@
 #ui.R
 library(shiny)
 shinyUI(fluidPage(
-  titlePanel("Dates and date ranges"),
+  titlePanel("林園廠E化數據線上查詢"),
   sidebarLayout(
     sidebarPanel(
-      selectInput("variable", "監測點",   c("T45-MB1" = "FIC-508A-3/PID1/PV.CV",
-                                            "T45-MB2" = "FIC-508B-3/PID1/PV.CV",
-                                            "T46-MB1" = "FIC-505A-3/PID1/PV.CV",
-                                            "T46-MB2" = "FIC-505B-3/PID1/PV.CV",
-                                            "T47-MB1" = "MAI-514A-3/PID1/PV.CV",
-                                            "T47-MB2" = "MAI-514B-3/PID1/PV.CV"
-                                         ))
-      ,
-      dateRangeInput('dateRange',
-                   #label = 'Date range input: yyyy-mm-dd',
-                   label = '選擇日期區間',
-                   start = Sys.Date() - 2, end = Sys.Date() + 2
+    #fluidRow(
+      selectInput("line", "產線 - 反應器",   c("U1-375T3"='375T3',"U1-600T"="600T"
+                                              ,"U2-375T1"="375T1","U2-375T2"="U2-375T2"
+                                              ,"U3-PC44"="PC44","U3-PC52"="PC52"),selected = NULL)
+      ,selectInput("actVariable", "監測點(切換產線後先查詢才會更新)",c())
+      ,selectInput("duration", "單位平均時間",   c("天" = 10,
+                                                 "小時" = 13,
+                                                 "分" = 16
+      ))
+      ,dateRangeInput('dateRange',
+                   label = '選擇日期區間'
+                  # format = "%Y-%m-%d %H:%M:%S",
+                   ,start = Sys.Date() - 200, end = Sys.Date() -198
+                   ,language = "zh-TW"
       )
+      ,fluidRow(
+        column(6,
+               sliderInput("start", "起始小時",
+                           min =0 , max = 23, value = 0)),
+       column(6,
+              sliderInput("end", "結束小時",
+                          min = 0, max = 23, value = 0)       
+        ))
+      ,checkboxInput("show", "展示數據", FALSE)
+      ,downloadButton('downloadData', '數據下載')
+      
+      ,submitButton("執行")
     )
     ,
     # Show the caption and plot of the requested variable against
     # mpg
     mainPanel(
       h3(textOutput("caption")),
-      
       plotOutput("mpgPlot"),
-      tableOutput("view"),
-      textOutput("dateRangeText")
+      #tableOutput("summary"),
+      tableOutput("view")
+      #textOutput("dateRangeText")
     )
   )
-  #,
-  #column(6, wellPanel(
-  #    dateRangeInput('dateRange',
-  #                 label = 'Date range input: yyyy-mm-dd',
-  #                 start = Sys.Date() - 2, end = Sys.Date() + 2
-  #  )
-  #)),
-  
+
 ))
 
-#server.r
+#server.R
 library(shiny)
 library(datasets)
 library(reshape2)
 
-
-#Query=paste("SELECT DCS#DATETIME DDATE,DCS#VALUE 
-#            FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
-#            WHERE DCS#TAGCD =",input$variable,
-#            "and	DCS#DATETIME >=",as.POSIXlt(input$dateRange[1]),
-#            "and	DCS#DATETIME <",as.POSIXlt(input$dateRange[2])
-#            ,sep = " ")
-#RAW <- dbGetQuery(conn,Query)
-
-
 shinyServer(function(input, output, session) {
-
-  formulaText <- reactive({
-    paste(input$variable)
+    
+  observe({
+    tags=reactive({
+      Query0 <-  paste("select	tag_name,tag_name+' '+tmemo tmemo FROM	[DCS_DATA_2015].[dbo].[DIM_DETAIL_TAGINFO]
+                    where factory_code=8020 and reactor='",input$line,"'",sep='')
+  
+      library(RJDBC)
+      drv <- JDBC("com.microsoft.sqlserver.jdbc.SQLServerDriver",
+                  "/etc/jdbc/sqljdbc41.jar",
+                  identifier.quote="`")
+      conn <- dbConnect(drv, "jdbc:sqlserver://192.168.204.44:1433", "sa", "!qaz2wsx")
+      
+      tag=dbGetQuery(conn,Query0)
+      tag
+    })
+    
+    updateSelectInput(session, "actVariable", choices = setNames(tags()$tag_name,tags()$tmemo))
   })
-  output$caption <- renderText({
-    formulaText()
-  })
-
+  
+  
   Query <-  reactive({
     paste("SELECT DCS#DATETIME,DCS#VALUE 
                 FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
                 WHERE DCS#TAGCD = '",input$variable,"'",
               " and	DCS#DATETIME >='",as.character(input$dateRange[1]),"'",
               " and	DCS#DATETIME <'",as.character(input$dateRange[2]),"'"
-          #" and	DCS#DATETIME >='2015-04-01' and	DCS#DATETIME <'2015-04-04'"
           ,sep = "")
   })   
     
@@ -80,26 +88,46 @@ shinyServer(function(input, output, session) {
                 identifier.quote="`")
     conn <- dbConnect(drv, "jdbc:sqlserver://192.168.204.44:1433", "sa", "!qaz2wsx")
     
-    Query <-#  reactive({
-                paste("SELECT DCS#DATETIME,DCS#VALUE 
-                FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
-                WHERE DCS#TAGCD = '",input$variable,"'",
-                " and	DCS#DATETIME >='",as.character(input$dateRange[1]),"'",
-                " and	DCS#DATETIME <'",as.character(input$dateRange[2]),"'"
-            #" and	DCS#DATETIME >='2015-04-01' and	DCS#DATETIME <'2015-04-04'"
-            ,sep = "")
-    #}) 
+    if(input$start<10){
+      startDateTime=paste(as.character(input$dateRange[1]),' 0'
+                          ,as.character(input$start),':00:00',sep='')
+    } else{startDateTime=paste(as.character(input$dateRange[1]),' ',as.character(input$start),':00:00',sep='')}
     
+    if(input$end<10){
+      endDateTime=paste(as.character(input$dateRange[2]),' 0'
+                          ,as.character(input$end),':00:00',sep='')
+    } else{endDateTime=paste(as.character(input$dateRange[2]),' ',as.character(input$end),':00:00',sep='')}
+        
+    
+    
+    Query <-    paste("SELECT DCS#DATETIME DDATE,DCS#VALUE VALUE
+                FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
+                WHERE DCS#TAGCD = '",input$actVariable,"'"
+                  ," and	DCS#DATETIME >='",startDateTime,"'"
+                  ," and	DCS#DATETIME <='",endDateTime,"'"      
+            ,sep = "")
+
 
     RAW0 <- dbGetQuery(conn,Query)
-    #RAW0 <- reactive({
-    #        dbGetQuery(conn,Query())
-    #})
-    RAW0
+
+    RAW0$DDATE=substr(RAW0$DDATE,1,input$duration)
+    RAW1=aggregate(RAW0,by = list(RAW0$DDATE),FUN = mean,na.rm=T)
+    RAW1$DDATE=NULL
+    colnames(RAW1)[1]='DDATE'
+    
+
+    RAW1
   })
   
   output$mpgPlot <- renderPlot({
-    plot(RAW()$'DCS#VALUE',  col="blue")
+    library("ggplot2")
+    dat.m=RAW()
+    dat.m$tag='tag'
+    
+    p = ggplot(dat.m, aes(x=DDATE, y=VALUE, colour=tag, group=tag)) + geom_line() 
+    p + xlab(" ") + ylab(" ")  + 
+      theme(axis.text.x = element_text(colour="white"),legend.position="none") 
+    
   })
   
   output$dateRangeText  <- renderText({
@@ -108,6 +136,21 @@ shinyServer(function(input, output, session) {
   })
   
   output$view <- renderTable({
-    print(RAW(), row.names = FALSE)
+    if(input$show){
+      print(RAW(), row.names = FALSE)
+    }
   })
+  
+  output$summary <- renderTable({
+    summary(RAW())
+  })
+  
+  output$downloadData <- downloadHandler(
+    filename = function() {
+      paste('data-', Sys.Date(), '.csv', sep='')
+    },
+    content = function(con) {
+      write.csv(RAW(), con)
+    }
+  )
 })
