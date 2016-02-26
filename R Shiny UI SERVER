@@ -1,14 +1,18 @@
 #ui.R
+
 library(shiny)
+library(plotly)
+
 shinyUI(fluidPage(
   titlePanel("林園廠E化數據線上查詢"),
   sidebarLayout(
     sidebarPanel(
     #fluidRow(
       selectInput("line", "產線 - 反應器",   c("U1-375T3"='375T3',"U1-600T"="600T"
-                                              ,"U2-375T1"="375T1","U2-375T2"="U2-375T2"
+                                              ,"U2-375T1"="375T1","U2-375T2"="375T2"
                                               ,"U3-PC44"="PC44","U3-PC52"="PC52"),selected = NULL)
-      ,selectInput("actVariable", "監測點(切換產線後先查詢才會更新)",c())
+#      ,actionButton("action", label = "更新")
+      ,selectInput("actVariable", "監測點",c())
       ,selectInput("duration", "單位平均時間",   c("天" = 10,
                                                  "小時" = 13,
                                                  "分" = 16
@@ -27,18 +31,29 @@ shinyUI(fluidPage(
               sliderInput("end", "結束小時",
                           min = 0, max = 23, value = 0)       
         ))
-      ,checkboxInput("show", "展示數據", FALSE)
-      ,downloadButton('downloadData', '數據下載')
-      
-      ,submitButton("執行")
+      ,fluidRow(
+        column(4,
+          radioButtons("plotType", "圖形種類:",
+                    c("線圖" = "line",
+                      "點圖" = "point")
+        ))
+      ,column(4,
+          checkboxInput("show", "展示數據", FALSE)
+        )
+      ,column(4,
+        downloadButton('downloadData', '數據下載')
+        )
+      )
+      ,actionButton("action", label = "執行")
+
     )
     ,
     # Show the caption and plot of the requested variable against
     # mpg
     mainPanel(
-      h3(textOutput("caption")),
-      plotOutput("mpgPlot"),
-      #tableOutput("summary"),
+      #h3(textOutput("tagText")),
+      #plotlyOutput
+      plotlyOutput("mpgPlot"),
       tableOutput("view")
       #textOutput("dateRangeText")
     )
@@ -47,6 +62,7 @@ shinyUI(fluidPage(
 ))
 
 #server.R
+
 library(shiny)
 library(datasets)
 library(reshape2)
@@ -71,17 +87,19 @@ shinyServer(function(input, output, session) {
     updateSelectInput(session, "actVariable", choices = setNames(tags()$tag_name,tags()$tmemo))
   })
   
+ 
   
-  Query <-  reactive({
-    paste("SELECT DCS#DATETIME,DCS#VALUE 
-                FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
-                WHERE DCS#TAGCD = '",input$variable,"'",
-              " and	DCS#DATETIME >='",as.character(input$dateRange[1]),"'",
-              " and	DCS#DATETIME <'",as.character(input$dateRange[2]),"'"
-          ,sep = "")
-  })   
+#  Query <-  reactive({
+#    paste("SELECT DCS#DATETIME,DCS#VALUE 
+#                FROM DCS_DATA_2015.dbo.DCS_DATA_8020 
+#                WHERE DCS#TAGCD = '",input$variable,"'",
+#              " and	DCS#DATETIME >='",as.character(input$dateRange[1]),"'",
+#              " and	DCS#DATETIME <'",as.character(input$dateRange[2]),"'"
+#          ,sep = "")
+#  })   
     
-  RAW <- reactive({
+  RAW <- eventReactive(input$action,{
+    #reactive({
     library(RJDBC)
     drv <- JDBC("com.microsoft.sqlserver.jdbc.SQLServerDriver",
                 "/etc/jdbc/sqljdbc41.jar",
@@ -119,33 +137,37 @@ shinyServer(function(input, output, session) {
     RAW1
   })
   
-  output$mpgPlot <- renderPlot({
+  output$mpgPlot <- renderPlotly({
+    input$action
     library("ggplot2")
+    library(plotly)
+    
     dat.m=RAW()
     dat.m$tag='tag'
-    
-    p = ggplot(dat.m, aes(x=DDATE, y=VALUE, colour=tag, group=tag)) + geom_line() 
+    if(input$plotType=="line"){
+      p = ggplot(dat.m, aes(x=DDATE, y=VALUE, colour=tag, group=tag)) + geom_line()
+    }else {p = ggplot(dat.m, aes(x=DDATE, y=VALUE, colour=tag, group=tag)) + geom_point()}
     p + xlab(" ") + ylab(" ")  + 
       theme(axis.text.x = element_text(colour="white"),legend.position="none") 
-    
+    ggplotly()
   })
   
-  output$dateRangeText  <- renderText({
-    #as.character(input$dateRange[1])
-    isolate(Query())
+  output$tagText  <- renderText({
+    input$actVariable
+    #isolate(Query())
   })
   
   output$view <- renderTable({
+    input$action
+    
     if(input$show){
       print(RAW(), row.names = FALSE)
     }
   })
   
-  output$summary <- renderTable({
-    summary(RAW())
-  })
-  
   output$downloadData <- downloadHandler(
+    #input$action
+    
     filename = function() {
       paste('data-', Sys.Date(), '.csv', sep='')
     },
@@ -153,4 +175,5 @@ shinyServer(function(input, output, session) {
       write.csv(RAW(), con)
     }
   )
+  
 })
